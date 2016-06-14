@@ -1,0 +1,278 @@
+<html>
+	<head>
+    <title>Simple Cosmology</title>
+
+			<!--matrix manipulations-->
+		<script type="text/javascript" src="glMatrix-0.9.5.min.js"></script>
+
+			<!--fragment shader-->
+		<script id="fragmentShader" type="fragmentShader">
+	    void main(void)
+    	{
+	    	gl_FragColor=vec4(.7,.7,1,1); //blue color
+    	}
+		</script>
+
+			<!--vertex shader-->
+		<script id="vertexShader" type="vertexShader">
+	    attribute vec3 position; //attribute=per vertex
+    	uniform mat4 modelView;  //uniform  =per primitive
+    	uniform mat4 projection;
+    	void main(void)
+    	{
+	    	gl_Position=projection*modelView*vec4(position,1);
+	    	gl_PointSize=3.;
+    	}
+		</script>
+
+
+			<!--javascript-->
+		<script type="text/javascript">
+
+			var POINTS=100;
+
+				//OpenGL
+    	var openGL;
+
+    		//shader program
+    	var shaderProgram;
+
+    		//modelView and projection matrix
+    	var modelView =mat4.create();
+    	var projection=mat4.create();
+
+    		//mouse
+    	var mouseX=0,
+    			mouseY=0,
+    	    buttonDown=false;
+
+    	 	//observer
+    	var observerX=0,
+    	    observerY=0,
+    	    observerZ=-20,
+    	    rotation=0;
+
+    		//vertex buffers
+    	var points;
+
+    		//particles
+     	var position=[];
+     	var velocity=[];
+
+
+	    	//initialize WebGL
+			function initWebGL()
+			{
+	  			//initialize OpenGL
+    		initOpenGL();
+
+    			//initialize shaders
+		    initShaders();
+
+		    	//initialize geometry
+       	initGeometry();
+
+       		//update physics
+       	physics();
+
+        	//draw loop
+        drawLoop();
+  		}
+
+    		//initialize OpenGL
+			function initOpenGL(canvas)
+    	{
+					//get canvas
+	  		var canvas=document.getElementById("Canvas");
+
+    			//window settings
+	    	openGL=canvas.getContext("webgl");
+      	openGL.viewportWidth =canvas.width;
+      	openGL.viewportHeight=canvas.height;
+        openGL.viewport(0,0,openGL.viewportWidth,openGL.viewportHeight);
+
+       		//OpenGL settings
+        openGL.clearColor(0,0,0,1);       //background color black
+        openGL.enable(openGL.DEPTH_TEST); //activate depth testing
+    	}
+
+    		//initialize shaders
+	    function initShaders()
+	    {
+	    		//get shaders
+        var fragmentShader=getShader(openGL,"fragmentShader");
+        var vertexShader  =getShader(openGL,"vertexShader");
+
+        	//create shader program
+        shaderProgram=openGL.createProgram();
+
+        	//load shaders
+        openGL.attachShader(shaderProgram,vertexShader);
+        openGL.attachShader(shaderProgram,fragmentShader);
+
+        	//link and use program
+        openGL.linkProgram(shaderProgram);
+        openGL.useProgram(shaderProgram);
+
+        	//initialize shader variables
+        shaderProgram.vertexPositionAttribute=openGL.getAttribLocation (shaderProgram,"position");
+        shaderProgram.pMatrixUniform         =openGL.getUniformLocation(shaderProgram,"projection");
+        shaderProgram.mvMatrixUniform        =openGL.getUniformLocation(shaderProgram,"modelView");
+        openGL.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+			}
+
+    		//initialize geometry
+    	function initGeometry()
+    	{
+          //create points
+        points=openGL.createBuffer();
+        openGL.bindBuffer(openGL.ARRAY_BUFFER,points);
+        for (p=0;p<800;p++)
+        {
+        	r    =5*Math.pow(Math.random(),1./3);
+        	theta=  Math.asin(2*Math.random()-1)+Math.PI/2;
+        	phi  =2*Math.PI*Math.random();
+        	position[3*p  ]=r*Math.sin(theta)*Math.cos(phi);
+        	position[3*p+1]=r*Math.sin(theta)*Math.sin(phi);
+        	position[3*p+2]=r*Math.cos(theta);
+        	velocity[3*p  ]=3*position[3*p  ];
+        	velocity[3*p+1]=3*position[3*p+1];
+        	velocity[3*p+2]=3*position[3*p+2];
+        }
+        openGL.bufferData(openGL.ARRAY_BUFFER,new Float32Array(position),openGL.STATIC_DRAW);
+        points.itemSize=3;
+        points.numItems=800;
+    	}
+
+  	  	//get shader
+	    function getShader(openGL,id)
+    	{
+    			//get shader from javaScript source code
+	    	var shaderScript=document.getElementById(id);
+
+	    		//get shader content into string
+        var string ="";
+        var content=shaderScript.firstChild;
+        while (content)
+        {
+          if (content.nodeType==3) string+=content.textContent;
+        	content=content.nextSibling;
+        }
+
+        	//create shader script
+        var shader;
+        if      (shaderScript.type=="fragmentShader") shader=openGL.createShader(openGL.FRAGMENT_SHADER);
+        else if (shaderScript.type=="vertexShader"  ) shader=openGL.createShader(openGL.VERTEX_SHADER);
+        else return null;
+
+        	//compile shader
+        openGL.shaderSource(shader,string);
+        openGL.compileShader(shader);
+        return shader;
+    	}
+
+    		//set observer
+    	function setObserver()
+    	{
+    			//set projection matrix
+        mat4.perspective(90,openGL.viewportWidth/openGL.viewportHeight,.1,100,projection);
+
+        	//set modelview matrix
+        mat4.identity(modelView);
+        mat4.translate(modelView,[observerX,observerY,observerZ]);
+
+        	//rotation
+        rotation+=.015;
+	      mat4.rotate(modelView,rotation,[0,1,.3]);
+
+	      	//set matrices
+        openGL.uniformMatrix4fv(shaderProgram.pMatrixUniform, false,projection);
+        openGL.uniformMatrix4fv(shaderProgram.mvMatrixUniform,false,modelView);
+
+    	}
+    		//update physics
+    	function physics()
+    	{
+        	//update velocity
+        for (p=0;p<800;p++)
+        {
+        	px=position[3*p  ];
+       		py=position[3*p+1];
+       		pz=position[3*p+2];
+	        for (q=0;q<800;q++)
+        	{
+        		qx=position[3*q  ];
+        	 	qy=position[3*q+1];
+        	 	qz=position[3*q+2];
+        	 	r=Math.sqrt((px-qx)*(px-qx)+(py-qy)*(py-qy)+(pz-qz)*(pz-qz));
+        	 	if (r>.1)
+        	 	{
+        	 		iR=1/r;
+        	 		iR3=iR*iR*iR;
+        	   	velocity[3*p  ]+=-.0105*(px-qx)*iR3;
+        	   	velocity[3*p+1]+=-.0105*(py-qy)*iR3;
+        	   	velocity[3*p+2]+=-.0105*(pz-qz)*iR3;
+        	 	}
+        	}
+        }
+
+        	//update position
+        for (p=0;p<3*800;p++) position[p]+=.01*velocity[p];
+        openGL.bufferData(openGL.ARRAY_BUFFER,new Float32Array(position),openGL.STATIC_DRAW);
+    	}
+
+    		//draw loop
+    	function drawLoop()
+    	{
+         	//set observer
+	      setObserver();
+
+    			//clear background
+        openGL.clear(openGL.COLOR_BUFFER_BIT | openGL.DEPTH_BUFFER_BIT);
+
+        	//visualize points
+        openGL.bindBuffer(openGL.ARRAY_BUFFER,points);
+        openGL.vertexAttribPointer(shaderProgram.vertexPositionAttribute,points.itemSize,openGL.FLOAT,false,0,0);
+        openGL.drawArrays(openGL.POINTS,0,points.numItems);
+
+        	//update physics
+        physics();
+
+        	//loop jump
+        window.requestAnimationFrame(drawLoop);
+    	}
+
+	   		//mouse button down
+			function mouseDown(event)
+			{
+				buttonDown=true;
+			  mouseX=event.clientX;
+			  mouseY=event.clientY;
+			}
+
+    		//mouse button up
+			function mouseUp()
+			{
+				buttonDown=false;
+			}
+
+    		//move mouse
+			function mouseMove(event)
+			{
+				if (buttonDown)
+				{
+						//change observer
+					observerX-=.01*(event.clientX-mouseX);
+					observerZ-=.01*(event.clientY-mouseY);
+
+						//store mouse position
+					mouseX=event.clientX;
+					mouseY=event.clientY;
+    		}
+			}
+		</script>
+	</head>
+	<body onload="initWebGL();">
+		<canvas id="Canvas" width="1665" height="970" onmousedown="mouseDown(event)" onmouseup="mouseUp()" onmousemove="mouseMove(event)"></canvas>
+	</body>
+</html>
